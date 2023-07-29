@@ -11,6 +11,18 @@ const ADDRESS = "0x5460687A450450355722C489877CF6C2ef54374C";
 const ABI = require("./ABI.js");
 const contract = new web3.eth.Contract(ABI, ADDRESS);
 
+// Initialize MongoDB connection once at the start of the application
+async function initializeMongoDB() {
+    try {
+        await client.connect();
+        console.log("Connected to MongoDB");
+    } catch (error) {
+        console.error("Error connecting to MongoDB:", error);
+    }
+}
+
+initializeMongoDB();
+
 const signNft = async (req, res) => {
     let address = await web3.eth.accounts.recover("Message to sign", req.query.signature)
     var balance = Number(await contract.methods.balanceOf(address).call())
@@ -54,7 +66,7 @@ const verifyAccessTokenC = (req, res) => {
 
 const signup = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, nftTokenIds } = req.body;
 
         // Connect to MongoDB
         await client.connect();
@@ -65,8 +77,8 @@ const signup = async (req, res) => {
         const existingUser = await usersCollection.findOne({ email: email });
 
         if (existingUser) {
-        // Email already exists, refuse the signup
-        return res.status(400).json({ success: false, error: 'Email already exists' });
+            // Email already exists, refuse the signup
+            return res.status(400).json({ success: false, error: 'Email already exists' });
         }
 
         // Generate salt and hash the password
@@ -74,20 +86,22 @@ const signup = async (req, res) => {
         const salt = await bcrypt.genSalt(saltRounds);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Insert the user document into the "users" collection
+        // Create a human-readable timestamp
+        const createdAt = new Date();
+
+        // Insert the user document into the "users" collection along with the NFT token IDs and timestamp
         await usersCollection.insertOne({
-        email: email,
-        password: hashedPassword,
-        salt: salt,
+            email: email,
+            password: hashedPassword,
+            salt: salt,
+            nftTokenIds: nftTokenIds, // Store the NFT token IDs in the collection
+            createdAt: createdAt // Store the timestamp in the collection
         });
 
         res.json({ success: true });
     } catch (error) {
         console.error(error);
         res.status(500).json({ success: false, error: 'Internal server error' });
-    } finally {
-        // Close the MongoDB connection
-        await client.close();
     }
 };
 
@@ -134,9 +148,6 @@ const getAccountDetails = async (req, res) => {
         // Access the email value from the decoded token
         const email = decodedToken.email;
 
-        // Connect to MongoDB
-        await client.connect();
-
         // Check if the email exists in the database
         const db = client.db('db');
         const usersCollection = db.collection('users');
@@ -155,7 +166,7 @@ const getAccountDetails = async (req, res) => {
         }
 
         // Check if the user's account details are complete
-        const accountDetailsComplete = false; // Replace with your logic to check if account details are complete
+        const accountDetailsComplete = existingUser.accountDetailsProvided; // Replace with your logic to check if account details are complete
 
         if (!accountDetailsComplete) {
         return res.status(403).json({ reason: 'account-details-incomplete' });
@@ -191,11 +202,76 @@ const updateTermsSigned = async (req, res) => {
     } catch (error) {
         console.error('Error updating termsSigned field:', error);
         res.status(500).json({ success: false, error: 'Internal server error' });
-    } finally {
-        // Close the MongoDB connection
-        await client.close();
     }
 };
+
+const getAccountNameAvalibility = async (req, res) => {
+  const { profileName } = req.query;
+
+  try {
+    // Get the JWT token from the request headers
+    const token = req.headers.authorization.split(' ')[1];
+
+    // Verify and decode the JWT token to get the user's email
+    const decodedToken = jwt.verify(token, process.env.JWT_ACCESS_TOKEN_A);
+    const email = decodedToken.email;
+
+    const db = client.db('db');
+    const collection = db.collection('users');
+
+    if (profileName.length < 3) {
+      return res.status(200).json({ taken: true, message: 'Account name already exists.' });
+    }
+
+    const existingUser = await collection.findOne({ profileName });
+
+    if (existingUser && existingUser.email === email) {
+      return res.status(200).json({ taken: false, message: 'This is your current account name.' });
+    } else if (existingUser) {
+      return res.status(200).json({ taken: true, message: 'Account name already exists.' });
+    }
+
+    return res.status(200).json({ taken: false, message: 'Account name is available.' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+
+const updateProfileData = async (req, res) => {
+  try {
+    // Get the JWT token from the request headers
+    const token = req.headers.authorization.split(' ')[1];
+
+    // Verify and decode the JWT token to get the user's email
+    const decodedToken = jwt.verify(token, process.env.JWT_ACCESS_TOKEN_A);
+    const email = decodedToken.email;
+
+    // Get the user data from the request body
+    const { profileName, profileGender, profileAge, profilePhone, profileInterest } = req.body;
+
+    // Update the user document in the "users" collection based on the email
+    const db = client.db('db');
+    const usersCollection = db.collection('users');
+    await usersCollection.updateOne({ email: email }, {
+      $set: {
+        profileName: profileName,
+        profileGender: profileGender,
+        profileAge: profileAge,
+        profilePhone: profilePhone,
+        profileInterest: profileInterest,
+        accountDetailsProvided: true,
+      },
+    });
+
+    res.json({ success: true }); // Return a success response
+  } catch (error) {
+    console.error('Error updating user data:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+};
+
 
 module.exports = {
     signNft,
@@ -206,4 +282,6 @@ module.exports = {
     verifyAccessTokenA,
     getAccountDetails,
     updateTermsSigned,
+    getAccountNameAvalibility,
+    updateProfileData,
 };
