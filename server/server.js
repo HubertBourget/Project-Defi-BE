@@ -14,6 +14,7 @@ const {
   updateTermsSigned,
   getAccountNameAvalibility,
   updateProfileData,
+  login,
 } = require('./handlers');
 
 express() 
@@ -28,6 +29,7 @@ express()
   .post('/api/getAccountDetails', getAccountDetails)
   .post('/api/updateTermsSigned', updateTermsSigned)
   .put('/api/updateProfileData', updateProfileData)
+  .post('/api/login', login)
   .listen(PORT, () => {
     console.log(`App listening on port ${PORT}`);
   });

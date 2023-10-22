@@ -6,6 +6,7 @@ const { MongoClient } = require('mongodb');
 
 const uri = process.env.MONGO_URI;
 const client = new MongoClient(uri);
+
 let web3 = new Web3("https://rpc.ankr.com/eth");
 const ADDRESS = "0x5460687A450450355722C489877CF6C2ef54374C";
 const ABI = require("./ABI.js");
@@ -104,7 +105,6 @@ const signup = async (req, res) => {
         res.status(500).json({ success: false, error: 'Internal server error' });
     }
 };
-
 
 const getAccessTokenA = async (req, res) => {
     try {
@@ -238,7 +238,6 @@ const getAccountNameAvalibility = async (req, res) => {
   }
 };
 
-
 const updateProfileData = async (req, res) => {
   try {
     // Get the JWT token from the request headers
@@ -272,6 +271,46 @@ const updateProfileData = async (req, res) => {
   }
 };
 
+const login = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        // Validate email and password
+        if (!email || !password) {
+            return res.status(400).json({ success: false, error: 'Email and password are required' });
+        }
+
+        // Connect to MongoDB
+        await client.connect();
+
+        // Check if the email exists in the database
+        const db = client.db('db');
+        const usersCollection = db.collection('users');
+        const user = await usersCollection.findOne({ email: email });
+
+        if (!user) {
+            return res.status(401).json({ success: false, error: 'Invalid credentials' });
+        }
+
+        // Compare the provided password with the stored hash
+        const passwordMatch = await bcrypt.compare(password, user.password);
+
+        if (!passwordMatch) {
+            return res.status(401).json({ success: false, error: 'Invalid credentials' });
+        }
+
+        // If credentials are valid, create and send an authentication token
+        
+        const token = jwt.sign(user, process.env.JWT_ACCESS_TOKEN_A, { expiresIn: '90d' });
+
+        res.json({ success: true, token: token });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+};
+
+
 
 module.exports = {
     signNft,
@@ -284,4 +323,5 @@ module.exports = {
     updateTermsSigned,
     getAccountNameAvalibility,
     updateProfileData,
+    login,
 };
